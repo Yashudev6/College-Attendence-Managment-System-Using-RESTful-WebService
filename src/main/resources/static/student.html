@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pillai System - Student Portal</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome & Google Fonts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+    <!-- Header Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="/student.html">
+                <i class="fa-solid fa-user-graduate text-info"></i> Pillai System | Student Portal
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-white me-2">
+                    <small class="d-block text-slate-400">Welcome,</small>
+                    <span class="fw-bold" id="studentNameDisplay">Student</span>
+                </div>
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                    <i class="fa-solid fa-right-from-bracket me-1"></i> Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="dashboard-wrapper">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <ul class="sidebar-nav">
+                <li class="nav-item">
+                    <a href="#overview" class="nav-link active" onclick="showStudentTab('profileTab')">
+                        <i class="fa-solid fa-address-card"></i> Student Profile
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#attendance" class="nav-link" onclick="showStudentTab('attendanceTab')">
+                        <i class="fa-solid fa-calendar-check"></i> My Attendance
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#results" class="nav-link" onclick="showStudentTab('resultsTab')">
+                        <i class="fa-solid fa-graduation-cap"></i> My Examination Results
+                    </a>
+                </li>
+            </ul>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- TAB 1: PROFILE & OVERVIEW -->
+            <div id="profileTab" class="student-tab-content">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="fw-bold m-0">Student Profile Overview</h3>
+                        <p class="text-muted m-0">Enrolled class, department details, and academic profile</p>
+                    </div>
+                </div>
+
+                <!-- Low Attendance Warning Alert -->
+                <div id="studentLowAttAlert" class="low-attendance-alert d-none">
+                    <div class="d-flex align-items-center gap-3">
+                        <i class="fa-solid fa-triangle-exclamation text-danger fs-2"></i>
+                        <div>
+                            <h6 class="fw-bold mb-1 text-danger">Low Attendance Warning Alert (&lt;75%)</h6>
+                            <p class="mb-0 text-dark" id="studentLowAttText">Your overall attendance is below the mandatory 75% requirement. Please contact your faculty advisor.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stat Cards -->
+                <div class="row g-4 mb-4">
+                    <div class="col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-icon primary"><i class="fa-solid fa-percent"></i></div>
+                            <div class="stat-details">
+                                <h6>Attendance Percentage</h6>
+                                <h3 id="profileAttPct">0%</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-icon success"><i class="fa-solid fa-award"></i></div>
+                            <div class="stat-details">
+                                <h6>Overall Grade</h6>
+                                <h3 id="profileGrade">N/A</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-card">
+                            <div class="stat-icon info"><i class="fa-solid fa-chart-simple"></i></div>
+                            <div class="stat-details">
+                                <h6>Cumulative Percentage</h6>
+                                <h3 id="profileExamPct">0%</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Profile Card & Enrolled Subjects -->
+                <div class="row g-4">
+                    <div class="col-md-5">
+                        <div class="custom-card">
+                            <div class="custom-card-header">
+                                <h5><i class="fa-solid fa-user text-primary"></i> Personal Information</h5>
+                            </div>
+                            <div class="custom-card-body" id="studentInfoCard">
+                                <p class="text-muted">Loading profile info...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-7">
+                        <div class="custom-card">
+                            <div class="custom-card-header">
+                                <h5><i class="fa-solid fa-book-open text-success"></i> Enrolled Subjects</h5>
+                            </div>
+                            <div class="custom-card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-custom table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Subject Code</th>
+                                                <th>Subject Name</th>
+                                                <th>Credits</th>
+                                                <th>Faculty Teacher</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="studentSubjectsTableBody">
+                                            <tr><td colspan="4" class="text-center py-3">Loading subjects...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: MY ATTENDANCE -->
+            <div id="attendanceTab" class="student-tab-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">My Attendance Records</h3>
+                </div>
+
+                <!-- Attendance Breakdown Summary -->
+                <div class="custom-card mb-4">
+                    <div class="custom-card-header">
+                        <h5><i class="fa-solid fa-calculator text-primary"></i> Attendance Summary Breakdown</h5>
+                    </div>
+                    <div class="custom-card-body">
+                        <div class="row text-center g-3" id="attSummaryBreakdown">
+                            <div class="col-6 col-md-3">
+                                <div class="p-3 bg-light rounded border">
+                                    <small class="text-muted d-block uppercase fw-bold">Total Classes</small>
+                                    <h4 class="fw-bold text-dark mb-0" id="sumTotalClasses">0</h4>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="p-3 bg-light rounded border">
+                                    <small class="text-success d-block uppercase fw-bold">Classes Attended</small>
+                                    <h4 class="fw-bold text-success mb-0" id="sumPresent">0</h4>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="p-3 bg-light rounded border">
+                                    <small class="text-danger d-block uppercase fw-bold">Absences</small>
+                                    <h4 class="fw-bold text-danger mb-0" id="sumAbsent">0</h4>
+                                </div>
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <div class="p-3 bg-light rounded border">
+                                    <small class="text-warning d-block uppercase fw-bold">Late Arrivals</small>
+                                    <h4 class="fw-bold text-warning mb-0" id="sumLate">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attendance Detailed Log -->
+                <div class="custom-card">
+                    <div class="custom-card-header">
+                        <h5><i class="fa-solid fa-list-check text-info"></i> Detailed Attendance Transaction Log</h5>
+                    </div>
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Subject Code</th>
+                                        <th>Subject Name</th>
+                                        <th>Status</th>
+                                        <th>Remarks</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="studentAttendanceTableBody">
+                                    <tr><td colspan="5" class="text-center py-4">Loading attendance log...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: MY EXAMINATION RESULTS -->
+            <div id="resultsTab" class="student-tab-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">My Examination Marks & Grade Sheets</h3>
+                </div>
+
+                <!-- Overall Grade Summary Banner -->
+                <div class="custom-card mb-4 bg-primary text-white">
+                    <div class="custom-card-body p-4">
+                        <div class="row align-items-center">
+                            <div class="col-md-8">
+                                <h4 class="fw-bold mb-1" id="resSummaryStudentName">Academic Result Transcript</h4>
+                                <p class="mb-0 opacity-75" id="resSummaryClass">Semester Result Performance</p>
+                            </div>
+                            <div class="col-md-4 text-md-end mt-3 mt-md-0">
+                                <div class="d-inline-block p-3 rounded-3 bg-white text-dark text-center">
+                                    <small class="text-muted fw-bold d-block uppercase">Overall Grade</small>
+                                    <h2 class="fw-bold text-primary mb-0" id="resSummaryOverallGrade">A</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Table -->
+                <div class="custom-card">
+                    <div class="custom-card-header">
+                        <h5><i class="fa-solid fa-file-invoice text-warning"></i> Subject-wise Exam Results</h5>
+                    </div>
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Subject Code</th>
+                                        <th>Subject Name</th>
+                                        <th>Marks Obtained</th>
+                                        <th>Max Marks</th>
+                                        <th>Percentage</th>
+                                        <th>Grade</th>
+                                        <th>Exam Type</th>
+                                        <th>Semester</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="studentResultsTableBody">
+                                    <tr><td colspan="8" class="text-center py-4">Loading exam results...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/student.js"></script>
+</body>
+</html>

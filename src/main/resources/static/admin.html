@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pillai System - Admin Dashboard</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome & Google Fonts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+    <!-- Header Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="/admin.html">
+                <i class="fa-solid fa-user-shield text-info"></i> Pillai System | Admin Panel
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <div class="text-white me-2">
+                    <small class="d-block text-slate-400">Logged in as</small>
+                    <span class="fw-bold" id="adminNameDisplay">Administrator</span>
+                </div>
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                    <i class="fa-solid fa-right-from-bracket me-1"></i> Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="dashboard-wrapper">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <ul class="sidebar-nav">
+                <li class="nav-item">
+                    <a href="#overview" class="nav-link active" onclick="showTab('overviewTab')">
+                        <i class="fa-solid fa-chart-line"></i> Dashboard Overview
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#students" class="nav-link" onclick="showTab('studentsTab')">
+                        <i class="fa-solid fa-user-graduate"></i> Manage Students
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#teachers" class="nav-link" onclick="showTab('teachersTab')">
+                        <i class="fa-solid fa-chalkboard-user"></i> Manage Teachers
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#departments" class="nav-link" onclick="showTab('departmentsTab')">
+                        <i class="fa-solid fa-building-columns"></i> Departments
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#classes" class="nav-link" onclick="showTab('classesTab')">
+                        <i class="fa-solid fa-school"></i> Classes
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#subjects" class="nav-link" onclick="showTab('subjectsTab')">
+                        <i class="fa-solid fa-book-open"></i> Subjects
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#users" class="nav-link" onclick="showTab('usersTab')">
+                        <i class="fa-solid fa-users-gear"></i> User Accounts
+                    </a>
+                </li>
+            </ul>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+
+            <!-- TAB 1: OVERVIEW -->
+            <div id="overviewTab" class="tab-pane-content">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="fw-bold m-0">Admin Dashboard</h3>
+                        <p class="text-muted m-0">System performance statistics and institutional metrics</p>
+                    </div>
+                    <button class="btn btn-accent" onclick="loadAdminStats()">
+                        <i class="fa-solid fa-rotate me-1"></i> Refresh Stats
+                    </button>
+                </div>
+
+                <!-- Low Attendance Warning Alert Banner -->
+                <div id="lowAttendanceBanner" class="low-attendance-alert d-none">
+                    <div class="d-flex align-items-center gap-3">
+                        <i class="fa-solid fa-triangle-exclamation text-danger fs-3"></i>
+                        <div>
+                            <h6 class="fw-bold mb-1 text-danger">Low Attendance Warning Alert</h6>
+                            <p class="mb-0 text-dark" id="lowAttendanceBannerText">0 students currently have attendance below 75% threshold.</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-danger px-3" onclick="showTab('studentsTab')">View Students</button>
+                </div>
+
+                <!-- Stat Cards Grid -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon primary"><i class="fa-solid fa-user-graduate"></i></div>
+                            <div class="stat-details">
+                                <h6>Total Students</h6>
+                                <h3 id="statTotalStudents">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon success"><i class="fa-solid fa-chalkboard-user"></i></div>
+                            <div class="stat-details">
+                                <h6>Total Teachers</h6>
+                                <h3 id="statTotalTeachers">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon info"><i class="fa-solid fa-book"></i></div>
+                            <div class="stat-details">
+                                <h6>Total Subjects</h6>
+                                <h3 id="statTotalSubjects">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon warning"><i class="fa-solid fa-school"></i></div>
+                            <div class="stat-details">
+                                <h6>Total Classes</h6>
+                                <h3 id="statTotalClasses">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon primary"><i class="fa-solid fa-clipboard-user"></i></div>
+                            <div class="stat-details">
+                                <h6>Attendance Records</h6>
+                                <h3 id="statTotalAttendance">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon success"><i class="fa-solid fa-file-invoice"></i></div>
+                            <div class="stat-details">
+                                <h6>Total Results</h6>
+                                <h3 id="statTotalResults">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="stat-icon danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                            <div class="stat-details">
+                                <h6>Low Attendance (&lt;75%)</h6>
+                                <h3 id="statLowAttendance">0</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity & Low Attendance Table -->
+                <div class="row g-4">
+                    <div class="col-md-7">
+                        <div class="custom-card">
+                            <div class="custom-card-header">
+                                <h5><i class="fa-solid fa-triangle-exclamation text-danger"></i> Students with Low Attendance (&lt;75%)</h5>
+                            </div>
+                            <div class="custom-card-body p-0">
+                                <div class="table-responsive">
+                                    <table class="table table-custom table-hover mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Student ID</th>
+                                                <th>Name</th>
+                                                <th>Class</th>
+                                                <th>Attended / Total</th>
+                                                <th>Percentage</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="lowAttendanceTableBody">
+                                            <tr><td colspan="5" class="text-center text-muted py-4">No low attendance warnings.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="custom-card">
+                            <div class="custom-card-header">
+                                <h5><i class="fa-solid fa-clock-rotate-left text-primary"></i> Recent System Activity</h5>
+                            </div>
+                            <div class="custom-card-body">
+                                <ul class="list-group list-group-flush" id="recentActivitiesList">
+                                    <li class="list-group-item text-muted">Loading activities...</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: STUDENTS -->
+            <div id="studentsTab" class="tab-pane-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">Manage Students</h3>
+                    <button class="btn btn-primary" onclick="openStudentModal()">
+                        <i class="fa-solid fa-plus me-1"></i> Add New Student
+                    </button>
+                </div>
+                <div class="custom-card">
+                    <div class="custom-card-header">
+                        <div class="w-50">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fa-solid fa-magnifying-glass"></i></span>
+                                <input type="text" id="studentSearchInput" class="form-control" placeholder="Search student by name, student ID, or email..." onkeyup="searchStudents()">
+                            </div>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="loadStudents()">Reload List</button>
+                    </div>
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Student ID</th>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Phone</th>
+                                        <th>Class</th>
+                                        <th>Department</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="studentsTableBody">
+                                    <tr><td colspan="7" class="text-center py-4">Loading students...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: TEACHERS -->
+            <div id="teachersTab" class="tab-pane-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">Manage Teachers</h3>
+                    <button class="btn btn-success" onclick="openTeacherModal()">
+                        <i class="fa-solid fa-plus me-1"></i> Add New Teacher
+                    </button>
+                </div>
+                <div class="custom-card">
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Teacher ID</th>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Phone</th>
+                                        <th>Department</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="teachersTableBody">
+                                    <tr><td colspan="6" class="text-center py-4">Loading teachers...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: DEPARTMENTS -->
+            <div id="departmentsTab" class="tab-pane-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">Manage Departments</h3>
+                    <button class="btn btn-primary" onclick="openDepartmentModal()">
+                        <i class="fa-solid fa-plus me-1"></i> Add Department
+                    </button>
+                </div>
+                <div class="custom-card">
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Department Name</th>
+                                        <th>Description</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="departmentsTableBody">
+                                    <tr><td colspan="4" class="text-center py-4">Loading departments...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 5: CLASSES -->
+            <div id="classesTab" class="tab-pane-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">Manage Classes</h3>
+                    <button class="btn btn-warning text-white" onclick="openClassModal()">
+                        <i class="fa-solid fa-plus me-1"></i> Add New Class
+                    </button>
+                </div>
+                <div class="custom-card">
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Class Name</th>
+                                        <th>Semester</th>
+                                        <th>Department</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="classesTableBody">
+                                    <tr><td colspan="5" class="text-center py-4">Loading classes...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 6: SUBJECTS -->
+            <div id="subjectsTab" class="tab-pane-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">Manage Subjects & Faculty Assignments</h3>
+                    <button class="btn btn-info text-white" onclick="openSubjectModal()">
+                        <i class="fa-solid fa-plus me-1"></i> Add Subject
+                    </button>
+                </div>
+                <div class="custom-card">
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Code</th>
+                                        <th>Subject Name</th>
+                                        <th>Credits</th>
+                                        <th>Assigned Class</th>
+                                        <th>Assigned Teacher</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subjectsTableBody">
+                                    <tr><td colspan="6" class="text-center py-4">Loading subjects...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 7: USERS -->
+            <div id="usersTab" class="tab-pane-content d-none">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h3 class="fw-bold m-0">User Account Status Management</h3>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="loadUsers()">Reload Users</button>
+                </div>
+                <div class="custom-card">
+                    <div class="custom-card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-custom table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Username</th>
+                                        <th>Email</th>
+                                        <th>Role</th>
+                                        <th>Status</th>
+                                        <th>Toggle Access</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersTableBody">
+                                    <tr><td colspan="6" class="text-center py-4">Loading user accounts...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Student Modal -->
+    <div class="modal fade" id="studentModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="studentModalTitle">Add New Student</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="studentForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="studentEditId">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Student ID (Unique)</label>
+                                <input type="text" class="form-control" id="studentIdCode" placeholder="e.g. STU011" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Full Name</label>
+                                <input type="text" class="form-control" id="studentName" placeholder="Full name" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" id="studentEmail" placeholder="student@pillai.edu" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Phone</label>
+                                <input type="text" class="form-control" id="studentPhone" placeholder="+91 99000 00000">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Class</label>
+                                <select class="form-select" id="studentClassSelect" required></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Department</label>
+                                <select class="form-select" id="studentDeptSelect" required></select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Student</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Teacher Modal -->
+    <div class="modal fade" id="teacherModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="teacherModalTitle">Add New Teacher</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="teacherForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="teacherEditId">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Teacher ID (Unique)</label>
+                                <input type="text" class="form-control" id="teacherIdCode" placeholder="e.g. TCH003" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Full Name</label>
+                                <input type="text" class="form-control" id="teacherName" placeholder="Full name" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Email</label>
+                                <input type="email" class="form-control" id="teacherEmail" placeholder="teacher@pillai.edu" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Phone</label>
+                                <input type="text" class="form-control" id="teacherPhone" placeholder="+91 98200 00000">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Department</label>
+                                <select class="form-select" id="teacherDeptSelect" required></select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success">Save Teacher</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Department Modal -->
+    <div class="modal fade" id="deptModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="deptModalTitle">Add Department</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="deptForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="deptEditId">
+                        <div class="mb-3">
+                            <label class="form-label">Department Name</label>
+                            <input type="text" class="form-control" id="deptName" placeholder="e.g. Mechanical Engineering" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" id="deptDesc" rows="3"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save Department</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Class Modal -->
+    <div class="modal fade" id="classModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="classModalTitle">Add Class</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="classForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="classEditId">
+                        <div class="mb-3">
+                            <label class="form-label">Class Name</label>
+                            <input type="text" class="form-control" id="classNameInput" placeholder="e.g. CS-Sem2" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Semester</label>
+                            <input type="text" class="form-control" id="classSemesterInput" placeholder="e.g. Semester 2" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Department</label>
+                            <select class="form-select" id="classDeptSelect" required></select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning text-white">Save Class</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subject Modal -->
+    <div class="modal fade" id="subjectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title fw-bold" id="subjectModalTitle">Add Subject</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="subjectForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="subjectEditId">
+                        <div class="mb-3">
+                            <label class="form-label">Subject Code</label>
+                            <input type="text" class="form-control" id="subjectCodeInput" placeholder="e.g. CS104" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Subject Name</label>
+                            <input type="text" class="form-control" id="subjectNameInput" placeholder="e.g. Machine Learning" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Credits</label>
+                            <input type="number" class="form-control" id="subjectCreditsInput" value="4" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Assign Class</label>
+                            <select class="form-select" id="subjectClassSelect" required></select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Assign Teacher</label>
+                            <select class="form-select" id="subjectTeacherSelect" required></select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-info text-white">Save Subject</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/admin.js"></script>
+</body>
+</html>

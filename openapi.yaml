@@ -1,0 +1,3734 @@
+openapi: 3.0.3
+info:
+  title: Pillai System REST API Specification
+  description: |
+    # Pillai System - Enterprise Student Attendance & Result Management API
+
+    Welcome to the official, code-oriented **OpenAPI 3.0.3 specification** for the **Pillai System**.
+    This document provides an exhaustive, human-crafted architectural and technical reference for all RESTful endpoints, DTO models, entity schemas, validation constraints, and security definitions implemented in the backend application.
+
+    ---
+
+    ## Architectural Overview
+    * **Runtime & Framework**: Java 17 LTS / Spring Boot 3.2.3
+    * **Security Framework**: Spring Security 6 with stateless HMAC SHA-256 JWT Bearer Authentication (`JwtAuthenticationFilter`)
+    * **Persistence Layer**: Spring Data JPA & Hibernate 6 with MySQL 8.0+ transactional database
+    * **Data Transfer Protocol**: JSON over HTTP/1.1 (RESTful JSON APIs)
+    * **Standard Response Envelope**: All API endpoints wrap responses in a standardized `ApiResponse<T>` envelope:
+      ```json
+      {
+        "success": true,
+        "message": "Operation executed successfully",
+        "data": { ... }
+      }
+      ```
+    * **Standard Error Model**: Intercepted by `GlobalExceptionHandler` (`@RestControllerAdvice`), returning an `ErrorResponse`:
+      ```json
+      {
+        "timestamp": "2026-09-07T18:30:00",
+        "status": 400,
+        "message": "Validation failed: Student ID is required",
+        "path": "/api/students"
+      }
+      ```
+
+    ---
+
+    ## Role-Based Access Control (RBAC)
+    The system supports three granular roles defined in `com.pillai.system.entity.Role`:
+    1. **`ROLE_ADMIN`**: Unrestricted governance over students, teachers, departments, academic classes, curriculum subjects, user accounts, and dashboard analytics.
+    2. **`ROLE_TEACHER`**: Authorized to mark and update student attendance, enter examination marks, evaluate student results, and view curriculum schedules.
+    3. **`ROLE_STUDENT`**: Read-only personal access to view enrolled classes, class subjects, attendance records, attendance summary percentages, and examination transcripts.
+
+    ---
+
+    ## Grading Engine Logic (`GradingService`)
+    The examination results engine automatically derives letter grades based on percentage computation:
+    $$\text{Percentage} = \left(\frac{\text{Marks Obtained}}{\text{Max Marks}}\right) \times 100$$
+    * **90.0% – 100.0%**: Grade **`A+`** (Outstanding)
+    * **80.0% – 89.99%**: Grade **`A`** (Excellent)
+    * **70.0% – 79.99%**: Grade **`B+`** (Very Good)
+    * **60.0% – 69.99%**: Grade **`B`** (Good)
+    * **50.0% – 59.99%**: Grade **`C`** (Average)
+    * **40.0% – 49.99%**: Grade **`D`** (Pass)
+    * **Below 40.0%**: Grade **`F`** (Fail)
+
+    ---
+
+    ## Attendance Threshold Engine (`AttendanceService`)
+    * **Low Attendance Criterion**: The system tracks attendance percentage:
+      $$\text{Attendance Percentage} = \left(\frac{\text{Present Days}}{\text{Total Sessions}}\right) \times 100$$
+    * Any student falling strictly below **75.0%** is flagged with `lowAttendance: true` and surfaced in executive dashboard alerts (`GET /api/attendance/low-attendance`).
+    * **Duplicate Prevention**: A unique database constraint on `(student_id, subject_id, date)` prohibits duplicate attendance entries for the same student, subject, and calendar day.
+
+    ---
+
+    ## Authentication Workflow
+    1. Submit credentials to `POST /api/auth/login`.
+    2. On success, the response contains a 24-hour HMAC SHA-256 signed `token`.
+    3. For all protected resources, pass the HTTP Authorization header:
+       `Authorization: Bearer <your_jwt_token>`
+  version: 1.0.0
+  contact:
+    name: Pillai System Technical Architecture Team
+    email: admin@pillai.edu
+    url: https://pillai.edu
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local Spring Boot Development Server
+  - url: https://api.pillai.edu/v1
+    description: Production Enterprise API Gateway
+
+tags:
+  - name: Authentication
+    description: Public authentication, user registration, JWT generation, and logout operations.
+  - name: Students
+    description: Student lifecycle management, enrollment queries, class roster lookups, and student self-profile.
+  - name: Teachers
+    description: Faculty directory management, teacher onboarding, departmental alignments, and profile updates.
+  - name: Departments
+    description: Academic department governance, curriculum divisions, and institutional structure.
+  - name: Classes
+    description: Academic cohorts, semester classifications, and class enrollment mappings.
+  - name: Subjects
+    description: Academic subjects/courses, credit weight allocations, and faculty teaching assignments.
+  - name: Attendance
+    description: Daily session attendance recording, duplicate prevention, status patching, and low attendance analytics (<75%).
+  - name: Results
+    description: Examination marks entry, automated letter grade calculations, grade revisions, and cumulative student transcripts.
+  - name: Users
+    description: Administrative user account directory, RBAC credential governance, and login access activation/deactivation.
+  - name: Dashboard
+    description: Institutional KPIs, student-teacher ratios, aggregate metrics, and administrative alert telemetry.
+
+paths:
+  # =========================================================================
+  # 1. AUTHENTICATION CONTROLLER (/api/auth)
+  # =========================================================================
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User Authentication & JWT Issuance
+      description: |
+        Authenticates a user against the Spring Security `DaoAuthenticationProvider`.
+        Validates username and BCrypt-hashed password.
+        Returns an HMAC SHA-256 signed JSON Web Token (valid for 24 hours), user identity metadata, and assigned RBAC role (`ADMIN`, `TEACHER`, or `STUDENT`).
+      operationId: login
+      security: []
+      requestBody:
+        description: Authentication credentials payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            example:
+              username: "admin"
+              password: "admin123"
+      responses:
+        '200':
+          description: Authentication successful. JWT token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAuth'
+              example:
+                success: true
+                message: "Login successful"
+                data:
+                  token: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTY5NDA3MjAwMCwiZXhwIjoxNjk0MTU4NDAwfQ.somerandomsignaturestring"
+                  tokenType: "Bearer"
+                  userId: 1
+                  username: "admin"
+                  email: "admin@pillai.edu"
+                  role: "ADMIN"
+                  entityId: 1
+                  name: "System Administrator"
+        '400':
+          description: Bad request. Request validation failed (blank username or password).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: "2026-09-07T18:14:00"
+                status: 400
+                message: "Validation failed: Username is required; Password is required"
+                path: "/api/auth/login"
+        '401':
+          description: Unauthorized. Invalid username or incorrect password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: "2026-09-07T18:14:00"
+                status: 401
+                message: "Invalid username or password"
+                path: "/api/auth/login"
+
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register New User & Associated Entity
+      description: |
+        Registers a new user account with BCrypt password encryption and automatically creates the corresponding role-based profile entity:
+        * If `role == STUDENT`: Creates a new `Student` record linked to `classId` and `departmentId`.
+        * If `role == TEACHER`: Creates a new `Teacher` record linked to `departmentId`.
+        * If `role == ADMIN`: Creates a new `Admin` record.
+        Enforces uniqueness on username and email addresses. Returns a JWT token upon successful onboarding.
+      operationId: register
+      security: []
+      requestBody:
+        description: Comprehensive user registration payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              username: "student11"
+              email: "student11@pillai.edu"
+              password: "student123"
+              role: "STUDENT"
+              name: "Tanvi Sharma"
+              phone: "+91 99000 10011"
+              departmentId: 1
+              classId: 1
+              studentIdStr: "STU011"
+              dateOfBirth: "2003-05-14"
+              gender: "Female"
+              address: "Sector 15, Panvel, Navi Mumbai"
+      responses:
+        '201':
+          description: User and entity record successfully registered and provisioned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAuth'
+              example:
+                success: true
+                message: "User registered successfully"
+                data:
+                  token: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdHVkZW50MTEiLCJpYXQiOjE2OTQwNzIwMDAsImV4cCI6MTY5NDE1ODQwMH0.somerandomsignaturestring"
+                  tokenType: "Bearer"
+                  userId: 15
+                  username: "student11"
+                  email: "student11@pillai.edu"
+                  role: "STUDENT"
+                  entityId: 11
+                  name: "Tanvi Sharma"
+        '400':
+          description: Validation error in submitted registration details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict. Username or email already registered in system.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: "2026-09-07T18:14:00"
+                status: 409
+                message: "Username already exists: student11"
+                path: "/api/auth/register"
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Terminate User Session
+      description: |
+        Signals logout on the server. Because the application uses stateless JWT authentication, the client application must remove the stored JWT token from browser `localStorage`.
+      operationId: logout
+      security: []
+      responses:
+        '200':
+          description: Successfully acknowledged logout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseString'
+              example:
+                success: true
+                message: "Logged out successfully"
+                data: null
+
+  # =========================================================================
+  # 2. STUDENT CONTROLLER (/api/students)
+  # =========================================================================
+  /api/students:
+    get:
+      tags:
+        - Students
+      summary: Retrieve All Students or Search Directory
+      description: |
+        Fetches a list of all enrolled students.
+        Supports optional substring search across student name, custom student ID (`studentId`), or email address via the `search` query parameter.
+        Requires authenticated user (`ROLE_ADMIN`, `ROLE_TEACHER`, or `ROLE_STUDENT`).
+      operationId: getAllStudents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          required: false
+          description: Substring query to filter students by name, student number, or email address.
+          schema:
+            type: string
+          example: "Aarav"
+      responses:
+        '200':
+          description: Student list retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudentList'
+              example:
+                success: true
+                message: "Students retrieved successfully"
+                data:
+                  - id: 1
+                    studentId: "STU001"
+                    name: "Aarav Patel"
+                    email: "student1@pillai.edu"
+                    phone: "+91 99000 10000"
+                    dateOfBirth: "2002-01-10"
+                    gender: "Male"
+                    address: "Navi Mumbai, Maharashtra, India"
+                    classId: 1
+                    className: "CS-Sem1"
+                    departmentId: 1
+                    departmentName: "Computer Science"
+                    userId: 4
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Students
+      summary: Create New Student (Admin Only)
+      description: |
+        Creates a new student record and automatically generates an associated login account in the `users` table with `ROLE_STUDENT` and default password `student123`.
+        Enforces unique constraints on `studentId` and `email`.
+        Restricted to users with role `ROLE_ADMIN`.
+      operationId: createStudent
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: Student demographic and academic enrollment data.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentDto'
+            example:
+              studentId: "STU012"
+              name: "Siddharth Rao"
+              email: "siddharth.rao@pillai.edu"
+              phone: "+91 98200 45678"
+              dateOfBirth: "2003-08-22"
+              gender: "Male"
+              address: "Sector 19, Kharghar, Navi Mumbai"
+              classId: 1
+              departmentId: 1
+      responses:
+        '201':
+          description: Student successfully created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudent'
+              example:
+                success: true
+                message: "Student created successfully"
+                data:
+                  id: 11
+                  studentId: "STU012"
+                  name: "Siddharth Rao"
+                  email: "siddharth.rao@pillai.edu"
+                  phone: "+91 98200 45678"
+                  dateOfBirth: "2003-08-22"
+                  gender: "Male"
+                  address: "Sector 19, Kharghar, Navi Mumbai"
+                  classId: 1
+                  className: "CS-Sem1"
+                  departmentId: 1
+                  departmentName: "Computer Science"
+                  userId: 16
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: Conflict. Student ID or email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/students/{id}:
+    get:
+      tags:
+        - Students
+      summary: Get Student by Primary Key ID
+      description: |
+        Retrieves detailed profile information for a specific student by their internal database ID.
+        Requires authenticated session.
+      operationId: getStudentById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Internal database primary key ID of the student.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Student profile retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudent'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Students
+      summary: Full Update of Student Profile (Admin Only)
+      description: |
+        Performs a full replacement update of all student attributes including demographic, contact, and enrollment data.
+        Synchronizes the updated email address to the associated `users` table record.
+        Restricted to `ROLE_ADMIN`.
+      operationId: updateStudent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Student database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Complete student entity replacement payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentDto'
+            example:
+              studentId: "STU001"
+              name: "Aarav K. Patel"
+              email: "student1.updated@pillai.edu"
+              phone: "+91 99000 99999"
+              dateOfBirth: "2002-01-10"
+              gender: "Male"
+              address: "Sector 12, Vashi, Navi Mumbai, India"
+              classId: 1
+              departmentId: 1
+      responses:
+        '200':
+          description: Student profile updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudent'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Conflict. Duplicate student ID or email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Students
+      summary: Partial Update of Student Profile (Admin Only)
+      description: |
+        Modifies specific fields of an existing student record without overwriting unprovided fields.
+        Restricted to `ROLE_ADMIN`.
+      operationId: patchStudent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Student database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Fields to patch (e.g., updated phone or address).
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentDto'
+            example:
+              phone: "+91 99000 88888"
+              address: "New Residential Address, Nerul, Navi Mumbai"
+      responses:
+        '200':
+          description: Student patched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudent'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Students
+      summary: Delete Student Record (Admin Only)
+      description: |
+        Deletes a student record from the database.
+        Cascades deletion to the associated login record in the `users` table and related attendance and exam result records.
+        Restricted to `ROLE_ADMIN`.
+      operationId: deleteStudent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Student database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Student record and cascading relations deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+              example:
+                success: true
+                message: "Student deleted successfully"
+                data: null
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/students/class/{classId}:
+    get:
+      tags:
+        - Students
+      summary: List Students Enrolled in a Specific Class
+      description: |
+        Returns all students currently assigned to the given academic cohort class ID.
+        Frequently used by instructors during attendance taking and marks submission.
+        Requires authenticated session.
+      operationId: getStudentsByClassId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: classId
+          in: path
+          required: true
+          description: Database primary key of the academic class cohort.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Class roster retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudentList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/students/me:
+    get:
+      tags:
+        - Students
+      summary: Get Logged-In Student Profile
+      description: |
+        Extracts the username from the calling client's JWT authentication token and fetches the student profile corresponding to that user.
+        Designed for student portal personal profiles.
+        Requires authenticated user with `ROLE_STUDENT`.
+      operationId: getMyProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Personal student profile retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudent'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: No student profile found associated with the active authentication principal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =========================================================================
+  # 3. TEACHER CONTROLLER (/api/teachers)
+  # =========================================================================
+  /api/teachers:
+    get:
+      tags:
+        - Teachers
+      summary: Retrieve All Faculty Members
+      description: |
+        Returns a complete list of registered teachers and professors across all academic departments.
+        Requires authenticated user.
+      operationId: getAllTeachers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Faculty directory retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseTeacherList'
+              example:
+                success: true
+                message: "Teachers retrieved successfully"
+                data:
+                  - id: 1
+                    teacherId: "TCH001"
+                    name: "Dr. Rajesh Sharma"
+                    email: "dr.sharma@pillai.edu"
+                    phone: "+91 98201 11223"
+                    departmentId: 1
+                    departmentName: "Computer Science"
+                    userId: 2
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Teachers
+      summary: Add New Teacher (Admin Only)
+      description: |
+        Creates a new faculty member profile and provisions an associated user account in `users` with `ROLE_TEACHER` and default password `teacher123`.
+        Enforces unique constraints on `teacherId` and `email`.
+        Restricted to `ROLE_ADMIN`.
+      operationId: createTeacher
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: Teacher details and departmental affiliation.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherDto'
+            example:
+              teacherId: "TCH003"
+              name: "Dr. Suresh Patil"
+              email: "dr.patil@pillai.edu"
+              phone: "+91 98203 55667"
+              departmentId: 1
+      responses:
+        '201':
+          description: Teacher successfully created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseTeacher'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: Conflict. Teacher ID or email already in use.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/teachers/{id}:
+    get:
+      tags:
+        - Teachers
+      summary: Get Teacher by Primary Key ID
+      description: |
+        Fetches teacher profile details by internal database primary key ID.
+        Requires authenticated session.
+      operationId: getTeacherById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Internal database ID of the teacher.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Teacher profile retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseTeacher'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Teachers
+      summary: Full Update of Teacher Profile (Admin Only)
+      description: |
+        Replaces all teacher attributes including departmental re-assignment and contact information.
+        Synchronizes updated email to user credentials.
+        Restricted to `ROLE_ADMIN`.
+      operationId: updateTeacher
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Teacher database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Full teacher payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherDto'
+            example:
+              teacherId: "TCH001"
+              name: "Dr. Rajesh K. Sharma"
+              email: "dr.sharma@pillai.edu"
+              phone: "+91 98201 99999"
+              departmentId: 1
+      responses:
+        '200':
+          description: Teacher profile updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseTeacher'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags:
+        - Teachers
+      summary: Partial Update of Teacher Record (Admin Only)
+      description: |
+        Selectively modifies non-null fields of an existing teacher record.
+        Restricted to `ROLE_ADMIN`.
+      operationId: patchTeacher
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Teacher database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Partial teacher attributes.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeacherDto'
+            example:
+              phone: "+91 98201 88888"
+      responses:
+        '200':
+          description: Teacher patched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseTeacher'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Teachers
+      summary: Delete Teacher Record (Admin Only)
+      description: |
+        Deletes a teacher from the database, removing their user account.
+        Dissociates assigned subjects by setting `teacher_id` to null on subjects taught.
+        Restricted to `ROLE_ADMIN`.
+      operationId: deleteTeacher
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Teacher database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Teacher deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # =========================================================================
+  # 4. DEPARTMENT CONTROLLER (/api/departments)
+  # =========================================================================
+  /api/departments:
+    get:
+      tags:
+        - Departments
+      summary: Retrieve All Academic Departments
+      description: |
+        Lists all academic divisions and departments registered in the institution (e.g. Computer Science, Information Technology).
+        Requires authenticated session.
+      operationId: getAllDepartments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Department list retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDepartmentList'
+              example:
+                success: true
+                message: "Departments retrieved successfully"
+                data:
+                  - id: 1
+                    departmentName: "Computer Science"
+                    description: "Department of Computer Engineering and Data Science"
+                  - id: 2
+                    departmentName: "Information Technology"
+                    description: "Department of Information Technology and Systems"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Departments
+      summary: Create New Department (Admin Only)
+      description: |
+        Creates a new academic department.
+        Enforces uniqueness on `departmentName`.
+        Restricted to `ROLE_ADMIN`.
+      operationId: createDepartment
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: New department payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepartmentDto'
+            example:
+              departmentName: "Mechanical Engineering"
+              description: "Department of Mechanical & Automation Engineering"
+      responses:
+        '201':
+          description: Department created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDepartment'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: Conflict. Department name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/departments/{id}:
+    get:
+      tags:
+        - Departments
+      summary: Get Department by ID
+      description: |
+        Retrieves a single department by its database primary key.
+        Requires authenticated session.
+      operationId: getDepartmentById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Department database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Department retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDepartment'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Departments
+      summary: Update Department (Admin Only)
+      description: |
+        Updates department name and description.
+        Restricted to `ROLE_ADMIN`.
+      operationId: updateDepartment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Department database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Updated department data.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DepartmentDto'
+            example:
+              departmentName: "Computer Science & Engineering"
+              description: "Department of Computer Science & AI Systems"
+      responses:
+        '200':
+          description: Department updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDepartment'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Departments
+      summary: Delete Department (Admin Only)
+      description: |
+        Deletes a department. Associated classes and teachers have their foreign key references updated to null.
+        Restricted to `ROLE_ADMIN`.
+      operationId: deleteDepartment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Department database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Department deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # =========================================================================
+  # 5. CLASS CONTROLLER (/api/classes)
+  # =========================================================================
+  /api/classes:
+    get:
+      tags:
+        - Classes
+      summary: Retrieve All Academic Classes
+      description: |
+        Lists all academic cohorts including class name, semester designation, and parent department association.
+        Requires authenticated session.
+      operationId: getAllClasses
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Class list retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseClassList'
+              example:
+                success: true
+                message: "Classes retrieved successfully"
+                data:
+                  - id: 1
+                    className: "CS-Sem1"
+                    semester: "Semester 1"
+                    departmentId: 1
+                    departmentName: "Computer Science"
+                  - id: 2
+                    className: "IT-Sem1"
+                    semester: "Semester 1"
+                    departmentId: 2
+                    departmentName: "Information Technology"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Classes
+      summary: Create New Academic Class (Admin Only)
+      description: |
+        Creates a new class cohort linked to an existing department.
+        Restricted to `ROLE_ADMIN`.
+      operationId: createClass
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: Class cohort definition.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassDto'
+            example:
+              className: "CS-Sem2"
+              semester: "Semester 2"
+              departmentId: 1
+      responses:
+        '201':
+          description: Academic class created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseClass'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          description: Not Found. Department ID does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/classes/{id}:
+    get:
+      tags:
+        - Classes
+      summary: Get Class by ID
+      description: |
+        Retrieves an academic class by its database primary key.
+        Requires authenticated session.
+      operationId: getClassById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Class database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Class details retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseClass'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Classes
+      summary: Update Academic Class (Admin Only)
+      description: |
+        Updates class name, semester, or associated department.
+        Restricted to `ROLE_ADMIN`.
+      operationId: updateClass
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Class database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Updated class payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassDto'
+            example:
+              className: "CS-Sem1-A"
+              semester: "Semester 1"
+              departmentId: 1
+      responses:
+        '200':
+          description: Class updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseClass'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Classes
+      summary: Delete Academic Class (Admin Only)
+      description: |
+        Deletes a class record. Associated students and subjects are unlinked (foreign keys set to null).
+        Restricted to `ROLE_ADMIN`.
+      operationId: deleteClass
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Class database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Class deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # =========================================================================
+  # 6. SUBJECT CONTROLLER (/api/subjects)
+  # =========================================================================
+  /api/subjects:
+    get:
+      tags:
+        - Subjects
+      summary: Retrieve All Subjects / Courses
+      description: |
+        Retrieves all curriculum subjects including subject codes, titles, assigned credits, enrolled class cohort, and faculty instructor.
+        Requires authenticated session.
+      operationId: getAllSubjects
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Subjects list retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSubjectList'
+              example:
+                success: true
+                message: "Subjects retrieved successfully"
+                data:
+                  - id: 1
+                    subjectCode: "CS101"
+                    subjectName: "Data Structures & Algorithms"
+                    credits: 4
+                    classId: 1
+                    className: "CS-Sem1"
+                    teacherId: 1
+                    teacherName: "Dr. Rajesh Sharma"
+                  - id: 2
+                    subjectCode: "CS102"
+                    subjectName: "Java Programming"
+                    credits: 4
+                    classId: 1
+                    className: "CS-Sem1"
+                    teacherId: 1
+                    teacherName: "Dr. Rajesh Sharma"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Subjects
+      summary: Create New Subject (Admin Only)
+      description: |
+        Registers a new curriculum subject, sets credits, assigns it to an academic class, and designates a faculty instructor.
+        Enforces uniqueness on `subjectCode`.
+        Restricted to `ROLE_ADMIN`.
+      operationId: createSubject
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: New subject specification payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectDto'
+            example:
+              subjectCode: "CS104"
+              subjectName: "Computer Networks"
+              credits: 3
+              classId: 1
+              teacherId: 1
+      responses:
+        '201':
+          description: Subject created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSubject'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: Conflict. Subject code already registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/subjects/{id}:
+    get:
+      tags:
+        - Subjects
+      summary: Get Subject by ID
+      description: |
+        Retrieves subject details by database primary key.
+        Requires authenticated session.
+      operationId: getSubjectById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Subject database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Subject details retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSubject'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Subjects
+      summary: Update Subject (Admin Only)
+      description: |
+        Updates subject name, credit points, assigned class, or faculty instructor.
+        Restricted to `ROLE_ADMIN`.
+      operationId: updateSubject
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Subject database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Full subject update payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubjectDto'
+            example:
+              subjectCode: "CS101"
+              subjectName: "Advanced Data Structures & Algorithms"
+              credits: 4
+              classId: 1
+              teacherId: 1
+      responses:
+        '200':
+          description: Subject updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSubject'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Subjects
+      summary: Delete Subject (Admin Only)
+      description: |
+        Deletes a subject from the curriculum. Cascades to associated attendance and examination result records.
+        Restricted to `ROLE_ADMIN`.
+      operationId: deleteSubject
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Subject database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Subject deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/subjects/class/{classId}:
+    get:
+      tags:
+        - Subjects
+      summary: List Subjects Assigned to a Class Cohort
+      description: |
+        Retrieves all curriculum subjects taught to students belonging to the specified class cohort ID.
+        Requires authenticated session.
+      operationId: getSubjectsByClassId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: classId
+          in: path
+          required: true
+          description: Database primary key of the academic class.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Class subjects retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSubjectList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/subjects/teacher/{teacherId}:
+    get:
+      tags:
+        - Subjects
+      summary: List Subjects Taught by a Faculty Member
+      description: |
+        Retrieves all curriculum subjects where the specified teacher is assigned as instructor.
+        Used by the teacher portal to render the instructor's active course catalog.
+        Requires authenticated session.
+      operationId: getSubjectsByTeacherId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: teacherId
+          in: path
+          required: true
+          description: Database primary key ID of the teacher.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Teacher courses retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseSubjectList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # =========================================================================
+  # 7. ATTENDANCE CONTROLLER (/api/attendance)
+  # =========================================================================
+  /api/attendance:
+    get:
+      tags:
+        - Attendance
+      summary: Retrieve All Attendance Records
+      description: |
+        Fetches the complete historical attendance log across all students and subjects.
+        Requires authenticated session.
+      operationId: getAllAttendance
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Attendance log retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendanceList'
+              example:
+                success: true
+                message: "Attendance records retrieved successfully"
+                data:
+                  - id: 1
+                    studentId: 1
+                    studentNumber: "STU001"
+                    studentName: "Aarav Patel"
+                    subjectId: 1
+                    subjectCode: "CS101"
+                    subjectName: "Data Structures & Algorithms"
+                    date: "2026-08-28"
+                    status: "PRESENT"
+                    remarks: "Present in lecture"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Attendance
+      summary: Mark Student Attendance
+      description: |
+        Records attendance for a student in a specific subject on a designated calendar date.
+        Enforces a strict unique constraint on `(student_id, subject_id, date)`.
+        If an attendance entry already exists for that combination, a `409 Conflict` is returned.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: markAttendance
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: Attendance record submission.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceRequestDto'
+            example:
+              studentId: 1
+              subjectId: 1
+              date: "2026-09-07"
+              status: "PRESENT"
+              remarks: "Attended laboratory session"
+      responses:
+        '201':
+          description: Attendance marked successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendance'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          description: Conflict. Attendance already recorded for this student, subject, and date.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                timestamp: "2026-09-07T18:14:00"
+                status: 409
+                message: "Attendance already marked for this student, subject, and date: 2026-09-07"
+                path: "/api/attendance"
+
+  /api/attendance/{id}:
+    get:
+      tags:
+        - Attendance
+      summary: Get Attendance Record by ID
+      description: |
+        Retrieves a single attendance entry by its database primary key.
+        Requires authenticated session.
+      operationId: getAttendanceById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Attendance database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Attendance record retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendance'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Attendance
+      summary: Full Update of Attendance Record
+      description: |
+        Performs a full update of an existing attendance record (re-assigns date, status, subject, or student).
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: updateAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Attendance database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Updated attendance parameters.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceRequestDto'
+            example:
+              studentId: 1
+              subjectId: 1
+              date: "2026-09-07"
+              status: "LATE"
+              remarks: "Arrived 15 minutes late"
+      responses:
+        '200':
+          description: Attendance updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendance'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags:
+        - Attendance
+      summary: Quick Patch of Attendance Status & Remarks
+      description: |
+        Rapid in-place update of an attendance record's status (`PRESENT`, `ABSENT`, `LATE`) and optional remarks.
+        Frequently utilized in daily roster checklist interfaces.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: patchAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Attendance database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Fields to patch.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendancePatchRequest'
+            example:
+              status: "PRESENT"
+              remarks: "Excused medical note provided"
+      responses:
+        '200':
+          description: Attendance status patched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendance'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Attendance
+      summary: Delete Attendance Record
+      description: |
+        Deletes an attendance entry from the system.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: deleteAttendance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Attendance database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Attendance record deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/attendance/student/{studentId}:
+    get:
+      tags:
+        - Attendance
+      summary: Retrieve Attendance History for a Student
+      description: |
+        Retrieves all historical attendance logs recorded for the specified student ID across all subjects.
+        Requires authenticated session.
+      operationId: getAttendanceByStudentId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          description: Database primary key ID of the student.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Student attendance log retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendanceList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/attendance/subject/{subjectId}:
+    get:
+      tags:
+        - Attendance
+      summary: Retrieve Attendance History for a Subject
+      description: |
+        Retrieves all attendance sessions recorded for the given subject ID.
+        Requires authenticated session.
+      operationId: getAttendanceBySubjectId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subjectId
+          in: path
+          required: true
+          description: Database primary key ID of the subject.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Subject attendance log retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendanceList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/attendance/summary/student/{studentId}:
+    get:
+      tags:
+        - Attendance
+      summary: Calculate Student Attendance Summary & Threshold Status
+      description: |
+        Aggregates session statistics for the designated student:
+        * Total scheduled sessions
+        * Total present count, absent count, and late count
+        * Overall attendance percentage: `(Present / Total) * 100`
+        * Low attendance boolean flag (`lowAttendance: true` if strictly below 75.0%)
+        Requires authenticated session.
+      operationId: getStudentAttendanceSummary
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          description: Database primary key ID of the student.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Student attendance summary calculated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendanceSummary'
+              example:
+                success: true
+                message: "Student attendance summary calculated"
+                data:
+                  studentId: 1
+                  studentNumber: "STU001"
+                  studentName: "Aarav Patel"
+                  className: "CS-Sem1"
+                  totalClasses: 10
+                  presentCount: 9
+                  absentCount: 1
+                  lateCount: 0
+                  attendancePercentage: 90.0
+                  lowAttendance: false
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/attendance/low-attendance:
+    get:
+      tags:
+        - Attendance
+      summary: Get All Students with Attendance Below 75%
+      description: |
+        Analyzes attendance records across the entire student population and returns summaries for all students whose attendance percentage falls strictly below 75.0%.
+        Used for early-warning banners and administrative intervention lists.
+        Requires authenticated session.
+      operationId: getLowAttendanceStudents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Low attendance student summaries retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseAttendanceSummaryList'
+              example:
+                success: true
+                message: "Low attendance students list (<75%) retrieved"
+                data:
+                  - studentId: 3
+                    studentNumber: "STU003"
+                    studentName: "Rohan Mehta"
+                    className: "CS-Sem1"
+                    totalClasses: 5
+                    presentCount: 1
+                    absentCount: 4
+                    lateCount: 0
+                    attendancePercentage: 20.0
+                    lowAttendance: true
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # =========================================================================
+  # 8. RESULT CONTROLLER (/api/results)
+  # =========================================================================
+  /api/results:
+    get:
+      tags:
+        - Results
+      summary: Retrieve All Examination Results
+      description: |
+        Lists all recorded examination results, including marks, max marks, derived percentage, exam type, semester, and letter grade.
+        Requires authenticated session.
+      operationId: getAllResults
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Examination results retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResultList'
+              example:
+                success: true
+                message: "Result records retrieved successfully"
+                data:
+                  - id: 1
+                    studentId: 1
+                    studentNumber: "STU001"
+                    studentName: "Aarav Patel"
+                    subjectId: 1
+                    subjectCode: "CS101"
+                    subjectName: "Data Structures & Algorithms"
+                    marks: 85.0
+                    maxMarks: 100.0
+                    percentage: 85.0
+                    semester: "Semester 1"
+                    examType: "Midterm Examination"
+                    grade: "A"
+                    remarks: "Good performance"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Results
+      summary: Enter Student Examination Marks & Auto-Calculate Grade
+      description: |
+        Submits student examination marks for an exam session.
+        Validates that `0 <= marks <= maxMarks`.
+        Computes `percentage = (marks / maxMarks) * 100` and automatically maps the score to the institutional grading scale (`A+`, `A`, `B+`, `B`, `C`, `D`, `F`) via `GradingService`.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: enterMarks
+      security:
+        - bearerAuth: []
+      requestBody:
+        description: Examination marks entry payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResultRequestDto'
+            example:
+              studentId: 1
+              subjectId: 1
+              marks: 92.5
+              maxMarks: 100.0
+              semester: "Semester 1"
+              examType: "Final Examination"
+              remarks: "Outstanding conceptual clarity"
+      responses:
+        '201':
+          description: Marks registered and letter grade assigned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResult'
+              example:
+                success: true
+                message: "Student marks entered successfully"
+                data:
+                  id: 21
+                  studentId: 1
+                  studentNumber: "STU001"
+                  studentName: "Aarav Patel"
+                  subjectId: 1
+                  subjectCode: "CS101"
+                  subjectName: "Data Structures & Algorithms"
+                  marks: 92.5
+                  maxMarks: 100.0
+                  percentage: 92.5
+                  semester: "Semester 1"
+                  examType: "Final Examination"
+                  grade: "A+"
+                  remarks: "Outstanding conceptual clarity"
+        '400':
+          description: Validation error or invalid marks range (`marks > maxMarks` or negative marks).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          description: Student or Subject ID not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/results/{id}:
+    get:
+      tags:
+        - Results
+      summary: Get Result Record by ID
+      description: |
+        Retrieves a single examination result by its database primary key.
+        Requires authenticated session.
+      operationId: getResultById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Result database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Result details retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResult'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags:
+        - Results
+      summary: Full Update of Result Record
+      description: |
+        Replaces marks, max marks, semester, exam type, or remarks.
+        Recalculates percentage and re-derives letter grade.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: updateResult
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Result database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Updated result parameters.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResultRequestDto'
+            example:
+              studentId: 1
+              subjectId: 1
+              marks: 88.0
+              maxMarks: 100.0
+              semester: "Semester 1"
+              examType: "Midterm Examination"
+              remarks: "Marks revised after re-evaluation"
+      responses:
+        '200':
+          description: Result updated and grade recalculated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResult'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags:
+        - Results
+      summary: Quick Patch Marks & Recalculate Grade
+      description: |
+        Allows instructors to quickly adjust marks, max marks, or remarks.
+        Automatically updates percentage and re-computes grade.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: patchResult
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Result database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      requestBody:
+        description: Adjusted marks or remarks.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResultPatchRequest'
+            example:
+              marks: 78.5
+              remarks: "Updated post-moderation"
+      responses:
+        '200':
+          description: Marks patched and grade updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResult'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Results
+      summary: Delete Result Record
+      description: |
+        Removes an examination result record.
+        Authorized for `ROLE_ADMIN` and `ROLE_TEACHER`.
+      operationId: deleteResult
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Result database primary key ID.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Result record deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseVoid'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/results/student/{studentId}:
+    get:
+      tags:
+        - Results
+      summary: Get All Results for a Student
+      description: |
+        Retrieves all exam papers, scores, percentages, and letter grades for the designated student.
+        Requires authenticated session.
+      operationId: getResultsByStudentId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          description: Database primary key ID of the student.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Student results retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResultList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/results/subject/{subjectId}:
+    get:
+      tags:
+        - Results
+      summary: Get All Results for a Subject
+      description: |
+        Retrieves all student examination marks recorded for the given subject.
+        Requires authenticated session.
+      operationId: getResultsBySubjectId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: subjectId
+          in: path
+          required: true
+          description: Database primary key ID of the subject.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Subject examination results retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseResultList'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/results/summary/student/{studentId}:
+    get:
+      tags:
+        - Results
+      summary: Compute Student Cumulative Academic Transcript Summary
+      description: |
+        Aggregates all exam marks for the student:
+        * Total marks scored across all exams
+        * Total maximum possible marks
+        * Cumulative percentage
+        * Overall transcript letter grade (using `GradingService`)
+        * Complete nested list of subject results
+        Requires authenticated session.
+      operationId: getStudentResultSummary
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          description: Database primary key ID of the student.
+          schema:
+            type: integer
+            format: int64
+          example: 1
+      responses:
+        '200':
+          description: Academic performance summary compiled successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseStudentResultSummary'
+              example:
+                success: true
+                message: "Student overall result summary calculated"
+                data:
+                  studentId: 1
+                  studentNumber: "STU001"
+                  studentName: "Aarav Patel"
+                  className: "CS-Sem1"
+                  totalMarks: 177.0
+                  totalMaxMarks: 200.0
+                  overallPercentage: 88.5
+                  overallGrade: "A"
+                  results:
+                    - id: 1
+                      studentId: 1
+                      studentNumber: "STU001"
+                      studentName: "Aarav Patel"
+                      subjectId: 1
+                      subjectCode: "CS101"
+                      subjectName: "Data Structures & Algorithms"
+                      marks: 85.0
+                      maxMarks: 100.0
+                      percentage: 85.0
+                      semester: "Semester 1"
+                      examType: "Midterm Examination"
+                      grade: "A"
+                      remarks: "Good performance"
+                    - id: 2
+                      studentId: 1
+                      studentNumber: "STU001"
+                      studentName: "Aarav Patel"
+                      subjectId: 2
+                      subjectCode: "CS102"
+                      subjectName: "Java Programming"
+                      marks: 92.0
+                      maxMarks: 100.0
+                      percentage: 92.0
+                      semester: "Semester 1"
+                      examType: "Final Examination"
+                      grade: "A+"
+                      remarks: "Excellent understanding"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # =========================================================================
+  # 9. USER CONTROLLER (/api/users)
+  # =========================================================================
+  /api/users:
+    get:
+      tags:
+        - Users
+      summary: Retrieve All System User Accounts (Admin Only)
+      description: |
+        Returns credentials metadata for all user accounts in the `users` table including username, email, assigned role (`ADMIN`, `TEACHER`, `STUDENT`), account enablement flag, and creation timestamp.
+        Passwords are not exposed in DTO responses.
+        Restricted to `ROLE_ADMIN`.
+      operationId: getAllUsers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User accounts list retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseUserList'
+              example:
+                success: true
+                message: "User list retrieved successfully"
+                data:
+                  - id: 1
+                    username: "admin"
+                    email: "admin@pillai.edu"
+                    role: "ADMIN"
+                    enabled: true
+                    createdAt: "2026-08-01T10:00:00"
+                  - id: 2
+                    username: "teacher1"
+                    email: "dr.sharma@pillai.edu"
+                    role: "TEACHER"
+                    enabled: true
+                    createdAt: "2026-08-01T10:00:00"
+                  - id: 4
+                    username: "student1"
+                    email: "student1@pillai.edu"
+                    role: "STUDENT"
+                    enabled: true
+                    createdAt: "2026-08-01T10:00:00"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/users/{id}/status:
+    patch:
+      tags:
+        - Users
+      summary: Toggle User Account Access (Admin Only)
+      description: |
+        Enables or disables login access for a specified user account.
+        When set to `enabled: false`, the user is prevented from authenticating and receiving JWT tokens.
+        Restricted to `ROLE_ADMIN`.
+      operationId: updateUserStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Database primary key ID of the user.
+          schema:
+            type: integer
+            format: int64
+          example: 4
+      requestBody:
+        description: Boolean payload indicating whether the account should be enabled.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserStatusUpdateRequest'
+            example:
+              enabled: false
+      responses:
+        '200':
+          description: User status successfully updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseUser'
+              example:
+                success: true
+                message: "User status updated to disabled"
+                data:
+                  id: 4
+                  username: "student1"
+                  email: "student1@pillai.edu"
+                  role: "STUDENT"
+                  enabled: false
+                  createdAt: "2026-08-01T10:00:00"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # =========================================================================
+  # 10. DASHBOARD CONTROLLER (/api/dashboard)
+  # =========================================================================
+  /api/dashboard/stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Get Aggregate Institutional KPI Statistics
+      description: |
+        Aggregates system-wide key metrics:
+        * Total student, teacher, class, and subject counts
+        * Total attendance records and exam results recorded
+        * Count and full summaries of students with attendance below 75%
+        * Chronological list of recent system activities
+        Requires authenticated session.
+      operationId: getDashboardStats
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dashboard metrics aggregated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponseDashboardStats'
+              example:
+                success: true
+                message: "Dashboard statistics calculated successfully"
+                data:
+                  totalStudents: 10
+                  totalTeachers: 2
+                  totalSubjects: 5
+                  totalClasses: 2
+                  totalAttendanceRecords: 50
+                  totalResults: 20
+                  lowAttendanceCount: 1
+                  lowAttendanceStudents:
+                    - studentId: 3
+                      studentNumber: "STU003"
+                      studentName: "Rohan Mehta"
+                      className: "CS-Sem1"
+                      totalClasses: 5
+                      presentCount: 1
+                      absentCount: 4
+                      lateCount: 0
+                      attendancePercentage: 20.0
+                      lowAttendance: true
+                  recentActivities:
+                    - "Attendance recorded for CS101 on 2026-09-01"
+                    - "Exam marks published for Java Programming"
+                    - "New student Aarav Patel enrolled in CS-Sem1"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+# ===========================================================================
+# COMPONENTS SECTION: SCHEMAS, RESPONSES, SECURITY SCHEMES
+# ===========================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        HMAC SHA-256 signed JSON Web Token (JWT).
+        Obtain a token via `POST /api/auth/login` or `POST /api/auth/register`.
+        Include in HTTP headers as: `Authorization: Bearer <token>`
+
+  responses:
+    BadRequestError:
+      description: Bad Request. Input validation failed or malformed request payload.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: "2026-09-07T18:14:00"
+            status: 400
+            message: "Validation failed: Field cannot be blank"
+            path: "/api/resource"
+
+    UnauthorizedError:
+      description: Unauthorized. Missing, invalid, or expired Bearer JWT token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: "2026-09-07T18:14:00"
+            status: 401
+            message: "Unauthorized access: Please provide a valid Bearer token"
+            path: "/api/resource"
+
+    ForbiddenError:
+      description: Forbidden. Authenticated user does not possess the required RBAC role.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: "2026-09-07T18:14:00"
+            status: 403
+            message: "Access denied: insufficient permissions"
+            path: "/api/resource"
+
+    NotFoundError:
+      description: Not Found. The requested entity ID does not exist in the database.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            timestamp: "2026-09-07T18:14:00"
+            status: 404
+            message: "Resource not found with id: 999"
+            path: "/api/resource/999"
+
+  schemas:
+    # -----------------------------------------------------------------------
+    # Enums
+    # -----------------------------------------------------------------------
+    Role:
+      type: string
+      description: Institutional Role-Based Access Control (RBAC) security level.
+      enum:
+        - ADMIN
+        - TEACHER
+        - STUDENT
+      example: "ADMIN"
+
+    AttendanceStatus:
+      type: string
+      description: Daily student attendance status classification.
+      enum:
+        - PRESENT
+        - ABSENT
+        - LATE
+      example: "PRESENT"
+
+    # -----------------------------------------------------------------------
+    # Core DTO Schemas
+    # -----------------------------------------------------------------------
+    AuthRequest:
+      type: object
+      description: User credentials submitted to initiate session.
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Unique system username.
+          example: "admin"
+        password:
+          type: string
+          format: password
+          description: Cleartext password to authenticate against stored BCrypt hash.
+          example: "admin123"
+
+    AuthResponse:
+      type: object
+      description: Authentication payload returned upon successful login or registration.
+      properties:
+        token:
+          type: string
+          description: Signed HMAC SHA-256 JSON Web Token.
+          example: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTY5NDA3MjAwMCwiZXhwIjoxNjk0MTU4NDAwfQ.somerandomsignaturestring"
+        tokenType:
+          type: string
+          description: Authentication scheme.
+          default: "Bearer"
+          example: "Bearer"
+        userId:
+          type: integer
+          format: int64
+          description: Primary key ID in `users` table.
+          example: 1
+        username:
+          type: string
+          description: Username of authenticated principal.
+          example: "admin"
+        email:
+          type: string
+          format: email
+          description: Registered email address.
+          example: "admin@pillai.edu"
+        role:
+          $ref: '#/components/schemas/Role'
+        entityId:
+          type: integer
+          format: int64
+          description: Database primary key ID of the associated profile entity (Student ID, Teacher ID, or Admin ID).
+          example: 1
+        name:
+          type: string
+          description: Display name of the user.
+          example: "System Administrator"
+
+    RegisterRequest:
+      type: object
+      description: Comprehensive registration payload for provisioning new users and associated profile entities.
+      required:
+        - username
+        - email
+        - password
+        - role
+        - name
+      properties:
+        username:
+          type: string
+          description: Unique login username.
+          example: "student11"
+        email:
+          type: string
+          format: email
+          description: Unique contact and login email address.
+          example: "student11@pillai.edu"
+        password:
+          type: string
+          format: password
+          description: Account password (will be hashed with BCrypt before persistence).
+          example: "student123"
+        role:
+          $ref: '#/components/schemas/Role'
+        name:
+          type: string
+          description: Full legal name.
+          example: "Tanvi Sharma"
+        phone:
+          type: string
+          description: Contact telephone number.
+          example: "+91 99000 10011"
+        departmentId:
+          type: integer
+          format: int64
+          description: Database ID of the affiliated department (applicable for students and teachers).
+          example: 1
+        classId:
+          type: integer
+          format: int64
+          description: Database ID of the academic class cohort (applicable for students).
+          example: 1
+        teacherIdStr:
+          type: string
+          description: Custom institutional teacher identification code (e.g., TCH003).
+          example: "TCH003"
+        studentIdStr:
+          type: string
+          description: Custom institutional student enrollment code (e.g., STU011).
+          example: "STU011"
+        dateOfBirth:
+          type: string
+          format: date
+          description: Date of birth (YYYY-MM-DD).
+          example: "2003-05-14"
+        gender:
+          type: string
+          description: Gender identifier.
+          example: "Female"
+        address:
+          type: string
+          description: Residential mailing address.
+          example: "Sector 15, Panvel, Navi Mumbai"
+
+    StudentDto:
+      type: object
+      description: Student entity data transfer representation.
+      required:
+        - studentId
+        - name
+        - email
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique auto-increment primary key ID in `students` table.
+          example: 1
+        studentId:
+          type: string
+          description: Institutional student identifier code.
+          example: "STU001"
+        name:
+          type: string
+          description: Full name of student.
+          example: "Aarav Patel"
+        email:
+          type: string
+          format: email
+          description: Email address (synchronized with login account).
+          example: "student1@pillai.edu"
+        phone:
+          type: string
+          description: Mobile contact number.
+          example: "+91 99000 10000"
+        dateOfBirth:
+          type: string
+          format: date
+          description: Student birthdate.
+          example: "2002-01-10"
+        gender:
+          type: string
+          description: Gender (Male / Female / Other).
+          example: "Male"
+        address:
+          type: string
+          description: Full residential address.
+          example: "Navi Mumbai, Maharashtra, India"
+        classId:
+          type: integer
+          format: int64
+          description: Foreign key ID referencing `classes` table.
+          example: 1
+        className:
+          type: string
+          readOnly: true
+          description: Name of enrolled class.
+          example: "CS-Sem1"
+        departmentId:
+          type: integer
+          format: int64
+          description: Foreign key ID referencing `departments` table.
+          example: 1
+        departmentName:
+          type: string
+          readOnly: true
+          description: Name of academic department.
+          example: "Computer Science"
+        userId:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Foreign key ID referencing corresponding account in `users` table.
+          example: 4
+
+    TeacherDto:
+      type: object
+      description: Teacher entity data transfer representation.
+      required:
+        - teacherId
+        - name
+        - email
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique primary key ID in `teachers` table.
+          example: 1
+        teacherId:
+          type: string
+          description: Institutional faculty identification code.
+          example: "TCH001"
+        name:
+          type: string
+          description: Full faculty name with title.
+          example: "Dr. Rajesh Sharma"
+        email:
+          type: string
+          format: email
+          description: Institutional email address.
+          example: "dr.sharma@pillai.edu"
+        phone:
+          type: string
+          description: Contact telephone number.
+          example: "+91 98201 11223"
+        departmentId:
+          type: integer
+          format: int64
+          description: Foreign key ID referencing `departments` table.
+          example: 1
+        departmentName:
+          type: string
+          readOnly: true
+          description: Name of affiliated academic department.
+          example: "Computer Science"
+        userId:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Foreign key ID referencing `users` login account.
+          example: 2
+
+    DepartmentDto:
+      type: object
+      description: Academic department entity representation.
+      required:
+        - departmentName
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique primary key ID in `departments` table.
+          example: 1
+        departmentName:
+          type: string
+          description: Unique departmental title.
+          example: "Computer Science"
+        description:
+          type: string
+          description: Long descriptive summary of department specializations.
+          example: "Department of Computer Engineering and Data Science"
+
+    ClassDto:
+      type: object
+      description: Academic cohort and semester grouping representation.
+      required:
+        - className
+        - semester
+        - departmentId
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique primary key ID in `classes` table.
+          example: 1
+        className:
+          type: string
+          description: Academic cohort designation.
+          example: "CS-Sem1"
+        semester:
+          type: string
+          description: Semester term identifier.
+          example: "Semester 1"
+        departmentId:
+          type: integer
+          format: int64
+          description: Foreign key ID of governing academic department.
+          example: 1
+        departmentName:
+          type: string
+          readOnly: true
+          description: Department title resolved from relational foreign key.
+          example: "Computer Science"
+
+    SubjectDto:
+      type: object
+      description: Curriculum subject / course entity representation.
+      required:
+        - subjectCode
+        - subjectName
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique primary key ID in `subjects` table.
+          example: 1
+        subjectCode:
+          type: string
+          description: Unique course catalog code.
+          example: "CS101"
+        subjectName:
+          type: string
+          description: Official course title.
+          example: "Data Structures & Algorithms"
+        credits:
+          type: integer
+          format: int32
+          description: Academic credit weight.
+          default: 3
+          example: 4
+        classId:
+          type: integer
+          format: int64
+          description: Foreign key ID referencing enrolled `classes` cohort.
+          example: 1
+        className:
+          type: string
+          readOnly: true
+          description: Resolved class cohort name.
+          example: "CS-Sem1"
+        teacherId:
+          type: integer
+          format: int64
+          description: Foreign key ID referencing assigned `teachers` instructor.
+          example: 1
+        teacherName:
+          type: string
+          readOnly: true
+          description: Resolved faculty instructor name.
+          example: "Dr. Rajesh Sharma"
+
+    AttendanceDto:
+      type: object
+      description: Historical attendance record representation.
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique primary key ID in `attendance` table.
+          example: 1
+        studentId:
+          type: integer
+          format: int64
+          description: Foreign key ID of student.
+          example: 1
+        studentNumber:
+          type: string
+          readOnly: true
+          description: Institutional student enrollment ID code.
+          example: "STU001"
+        studentName:
+          type: string
+          readOnly: true
+          description: Name of student.
+          example: "Aarav Patel"
+        subjectId:
+          type: integer
+          format: int64
+          description: Foreign key ID of subject.
+          example: 1
+        subjectCode:
+          type: string
+          readOnly: true
+          description: Subject course code.
+          example: "CS101"
+        subjectName:
+          type: string
+          readOnly: true
+          description: Subject course name.
+          example: "Data Structures & Algorithms"
+        date:
+          type: string
+          format: date
+          description: Session date (YYYY-MM-DD).
+          example: "2026-08-28"
+        status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        remarks:
+          type: string
+          description: Optional instructor notes or attendance justifications.
+          example: "Present in lecture"
+
+    AttendanceRequestDto:
+      type: object
+      description: Payload for marking or updating an attendance session.
+      required:
+        - studentId
+        - subjectId
+        - date
+        - status
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Optional ID when updating existing record.
+          example: 1
+        studentId:
+          type: integer
+          format: int64
+          description: Target student database primary key ID.
+          example: 1
+        subjectId:
+          type: integer
+          format: int64
+          description: Target subject database primary key ID.
+          example: 1
+        date:
+          type: string
+          format: date
+          description: Calendar date of instruction session (YYYY-MM-DD).
+          example: "2026-09-07"
+        status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        remarks:
+          type: string
+          description: Optional attendance comments.
+          example: "Attended laboratory session"
+
+    AttendancePatchRequest:
+      type: object
+      description: Partial attendance modification payload.
+      properties:
+        status:
+          $ref: '#/components/schemas/AttendanceStatus'
+        remarks:
+          type: string
+          description: Updated remarks or excuse documentation.
+          example: "Medical certificate verified"
+
+    AttendanceSummaryDto:
+      type: object
+      description: Aggregated attendance analytics and threshold warning calculations for a student.
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          description: Student database primary key ID.
+          example: 1
+        studentNumber:
+          type: string
+          description: Institutional student code.
+          example: "STU001"
+        studentName:
+          type: string
+          description: Student full name.
+          example: "Aarav Patel"
+        className:
+          type: string
+          description: Enrolled class cohort name.
+          example: "CS-Sem1"
+        totalClasses:
+          type: integer
+          format: int64
+          description: Total number of sessions logged for student.
+          example: 10
+        presentCount:
+          type: integer
+          format: int64
+          description: Sessions marked as PRESENT.
+          example: 9
+        absentCount:
+          type: integer
+          format: int64
+          description: Sessions marked as ABSENT.
+          example: 1
+        lateCount:
+          type: integer
+          format: int64
+          description: Sessions marked as LATE.
+          example: 0
+        attendancePercentage:
+          type: number
+          format: double
+          description: Percentage of sessions attended: `(presentCount / totalClasses) * 100`.
+          example: 90.0
+        lowAttendance:
+          type: boolean
+          description: True if attendance percentage is strictly below institutional threshold (75.0%).
+          example: false
+
+    ResultDto:
+      type: object
+      description: Academic examination score and letter grade evaluation record.
+      properties:
+        id:
+          type: integer
+          format: int64
+          readOnly: true
+          description: Unique primary key ID in `results` table.
+          example: 1
+        studentId:
+          type: integer
+          format: int64
+          description: Student database primary key ID.
+          example: 1
+        studentNumber:
+          type: string
+          readOnly: true
+          description: Institutional student enrollment code.
+          example: "STU001"
+        studentName:
+          type: string
+          readOnly: true
+          description: Full student name.
+          example: "Aarav Patel"
+        subjectId:
+          type: integer
+          format: int64
+          description: Subject course database primary key ID.
+          example: 1
+        subjectCode:
+          type: string
+          readOnly: true
+          description: Subject course code.
+          example: "CS101"
+        subjectName:
+          type: string
+          readOnly: true
+          description: Subject title.
+          example: "Data Structures & Algorithms"
+        marks:
+          type: number
+          format: double
+          description: Marks scored by the student.
+          example: 85.0
+        maxMarks:
+          type: number
+          format: double
+          description: Maximum possible marks for the evaluation.
+          example: 100.0
+        percentage:
+          type: number
+          format: double
+          description: Computed percentage: `(marks / maxMarks) * 100`.
+          example: 85.0
+        semester:
+          type: string
+          description: Semester term designation.
+          example: "Semester 1"
+        examType:
+          type: string
+          description: Examination category (e.g., Midterm Examination, Final Examination, Unit Test).
+          example: "Midterm Examination"
+        grade:
+          type: string
+          readOnly: true
+          description: Automated letter grade derived via `GradingService` (A+, A, B+, B, C, D, F).
+          example: "A"
+        remarks:
+          type: string
+          description: Faculty evaluation remarks.
+          example: "Good performance"
+
+    ResultRequestDto:
+      type: object
+      description: Request payload for recording examination marks.
+      required:
+        - studentId
+        - subjectId
+        - marks
+        - maxMarks
+        - semester
+        - examType
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Optional ID when updating an existing record.
+          example: 1
+        studentId:
+          type: integer
+          format: int64
+          description: Target student primary key ID.
+          example: 1
+        subjectId:
+          type: integer
+          format: int64
+          description: Target subject primary key ID.
+          example: 1
+        marks:
+          type: number
+          format: double
+          minimum: 0
+          description: Marks scored (cannot be negative).
+          example: 92.5
+        maxMarks:
+          type: number
+          format: double
+          minimum: 1
+          description: Total maximum marks available (must be greater than 0).
+          example: 100.0
+        semester:
+          type: string
+          description: Academic semester.
+          example: "Semester 1"
+        examType:
+          type: string
+          description: Examination assessment label.
+          example: "Final Examination"
+        remarks:
+          type: string
+          description: Optional feedback comments.
+          example: "Outstanding performance in algorithms"
+
+    ResultPatchRequest:
+      type: object
+      description: Quick marks adjustment and grade recalculation payload.
+      properties:
+        marks:
+          type: number
+          format: double
+          minimum: 0
+          description: Adjusted marks obtained.
+          example: 78.5
+        maxMarks:
+          type: number
+          format: double
+          minimum: 1
+          description: Adjusted maximum marks.
+          example: 100.0
+        remarks:
+          type: string
+          description: Updated faculty remarks.
+          example: "Re-evaluated after question paper grievance"
+
+    StudentResultSummaryDto:
+      type: object
+      description: Cumulative academic transcript summary aggregating all examinations for a student.
+      properties:
+        studentId:
+          type: integer
+          format: int64
+          description: Student database primary key ID.
+          example: 1
+        studentNumber:
+          type: string
+          description: Student institutional enrollment code.
+          example: "STU001"
+        studentName:
+          type: string
+          description: Student full name.
+          example: "Aarav Patel"
+        className:
+          type: string
+          description: Enrolled class cohort name.
+          example: "CS-Sem1"
+        totalMarks:
+          type: number
+          format: double
+          description: Sum of all marks obtained across all examinations.
+          example: 177.0
+        totalMaxMarks:
+          type: number
+          format: double
+          description: Sum of all maximum possible marks.
+          example: 200.0
+        overallPercentage:
+          type: number
+          format: double
+          description: Cumulative aggregate percentage: `(totalMarks / totalMaxMarks) * 100`.
+          example: 88.5
+        overallGrade:
+          type: string
+          description: Final cumulative letter grade derived via `GradingService`.
+          example: "A"
+        results:
+          type: array
+          description: Array of individual subject examination result records.
+          items:
+            $ref: '#/components/schemas/ResultDto'
+
+    UserDto:
+      type: object
+      description: User security account metadata.
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: User database primary key ID.
+          example: 1
+        username:
+          type: string
+          description: Unique login username.
+          example: "admin"
+        email:
+          type: string
+          format: email
+          description: Registered account email.
+          example: "admin@pillai.edu"
+        role:
+          $ref: '#/components/schemas/Role'
+        enabled:
+          type: boolean
+          description: Account login access authorization flag.
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp.
+          example: "2026-08-01T10:00:00"
+
+    UserStatusUpdateRequest:
+      type: object
+      description: Request payload for updating login access enablement.
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          description: True to grant login access; False to revoke authentication rights.
+          example: true
+
+    DashboardStatsDto:
+      type: object
+      description: Institutional KPI dashboard metrics aggregation.
+      properties:
+        totalStudents:
+          type: integer
+          format: int64
+          description: Total registered students.
+          example: 10
+        totalTeachers:
+          type: integer
+          format: int64
+          description: Total faculty members.
+          example: 2
+        totalSubjects:
+          type: integer
+          format: int64
+          description: Total active curriculum subjects.
+          example: 5
+        totalClasses:
+          type: integer
+          format: int64
+          description: Total academic cohorts.
+          example: 2
+        totalAttendanceRecords:
+          type: integer
+          format: int64
+          description: Total attendance session entries logged.
+          example: 50
+        totalResults:
+          type: integer
+          format: int64
+          description: Total examination marks records stored.
+          example: 20
+        lowAttendanceCount:
+          type: integer
+          format: int64
+          description: Count of students with cumulative attendance < 75%.
+          example: 1
+        lowAttendanceStudents:
+          type: array
+          description: Detailed attendance summaries for all students below the 75% threshold.
+          items:
+            $ref: '#/components/schemas/AttendanceSummaryDto'
+        recentActivities:
+          type: array
+          description: System activity trail.
+          items:
+            type: string
+          example:
+            - "Attendance recorded for CS101 on 2026-09-01"
+            - "Exam marks published for Java Programming"
+            - "New student Aarav Patel enrolled in CS-Sem1"
+
+    # -----------------------------------------------------------------------
+    # Standard Error Model
+    # -----------------------------------------------------------------------
+    ErrorResponse:
+      type: object
+      description: Standardized error payload generated by `GlobalExceptionHandler`.
+      required:
+        - timestamp
+        - status
+        - message
+        - path
+      properties:
+        timestamp:
+          type: string
+          description: Timestamp of error generation in ISO-8601 string format.
+          example: "2026-09-07T18:14:00"
+        status:
+          type: integer
+          description: HTTP status code.
+          example: 400
+        message:
+          type: string
+          description: Descriptive message explaining cause of error.
+          example: "Validation failed: Student ID is required"
+        path:
+          type: string
+          description: API URI request path that triggered the exception.
+          example: "/api/students"
+
+    # -----------------------------------------------------------------------
+    # Typed Standard ApiResponse Envelopes
+    # -----------------------------------------------------------------------
+    ApiResponseAuth:
+      type: object
+      description: Standard response envelope containing authentication tokens and identity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Login successful"
+        data:
+          $ref: '#/components/schemas/AuthResponse'
+
+    ApiResponseString:
+      type: object
+      description: Standard response envelope containing string or null data.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed"
+        data:
+          type: string
+          nullable: true
+          example: null
+
+    ApiResponseVoid:
+      type: object
+      description: Standard response envelope with null data payload (used in DELETE actions).
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Entity deleted successfully"
+        data:
+          type: object
+          nullable: true
+          example: null
+
+    ApiResponseStudent:
+      type: object
+      description: Standard response envelope containing a single Student entity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Student retrieved successfully"
+        data:
+          $ref: '#/components/schemas/StudentDto'
+
+    ApiResponseStudentList:
+      type: object
+      description: Standard response envelope containing a list of Student entities.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Students retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentDto'
+
+    ApiResponseTeacher:
+      type: object
+      description: Standard response envelope containing a single Teacher entity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Teacher retrieved successfully"
+        data:
+          $ref: '#/components/schemas/TeacherDto'
+
+    ApiResponseTeacherList:
+      type: object
+      description: Standard response envelope containing a list of Teacher entities.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Teachers retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeacherDto'
+
+    ApiResponseDepartment:
+      type: object
+      description: Standard response envelope containing a single Department entity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Department retrieved successfully"
+        data:
+          $ref: '#/components/schemas/DepartmentDto'
+
+    ApiResponseDepartmentList:
+      type: object
+      description: Standard response envelope containing a list of Department entities.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Departments retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DepartmentDto'
+
+    ApiResponseClass:
+      type: object
+      description: Standard response envelope containing a single Academic Class entity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Class retrieved successfully"
+        data:
+          $ref: '#/components/schemas/ClassDto'
+
+    ApiResponseClassList:
+      type: object
+      description: Standard response envelope containing a list of Academic Class entities.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Classes retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClassDto'
+
+    ApiResponseSubject:
+      type: object
+      description: Standard response envelope containing a single Subject entity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Subject retrieved successfully"
+        data:
+          $ref: '#/components/schemas/SubjectDto'
+
+    ApiResponseSubjectList:
+      type: object
+      description: Standard response envelope containing a list of Subject entities.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Subjects retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubjectDto'
+
+    ApiResponseAttendance:
+      type: object
+      description: Standard response envelope containing a single Attendance record.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Attendance record retrieved successfully"
+        data:
+          $ref: '#/components/schemas/AttendanceDto'
+
+    ApiResponseAttendanceList:
+      type: object
+      description: Standard response envelope containing a list of Attendance records.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Attendance records retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceDto'
+
+    ApiResponseAttendanceSummary:
+      type: object
+      description: Standard response envelope containing an Attendance Summary calculation.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Student attendance summary calculated"
+        data:
+          $ref: '#/components/schemas/AttendanceSummaryDto'
+
+    ApiResponseAttendanceSummaryList:
+      type: object
+      description: Standard response envelope containing a list of low-attendance student summaries.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Low attendance students list (<75%) retrieved"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceSummaryDto'
+
+    ApiResponseResult:
+      type: object
+      description: Standard response envelope containing an Examination Result record.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Result record retrieved successfully"
+        data:
+          $ref: '#/components/schemas/ResultDto'
+
+    ApiResponseResultList:
+      type: object
+      description: Standard response envelope containing a list of Examination Result records.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Result records retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultDto'
+
+    ApiResponseStudentResultSummary:
+      type: object
+      description: Standard response envelope containing a cumulative student academic transcript summary.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Student overall result summary calculated"
+        data:
+          $ref: '#/components/schemas/StudentResultSummaryDto'
+
+    ApiResponseUser:
+      type: object
+      description: Standard response envelope containing a User account entity.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "User retrieved successfully"
+        data:
+          $ref: '#/components/schemas/UserDto'
+
+    ApiResponseUserList:
+      type: object
+      description: Standard response envelope containing a list of User account entities.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "User list retrieved successfully"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDto'
+
+    ApiResponseDashboardStats:
+      type: object
+      description: Standard response envelope containing aggregated institutional KPI statistics.
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Dashboard statistics calculated successfully"
+        data:
+          $ref: '#/components/schemas/DashboardStatsDto'
